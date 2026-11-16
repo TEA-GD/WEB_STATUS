@@ -1,60 +1,52 @@
 # CSV Website Status Checker
 
-Check domains and URLs from a CSV and export HTTP status codes, redirects, and network errors.
+Check domains and URLs from a CSV and save an Excel-friendly report. Requires Python 3.10 or newer; no extra packages.
 
 ## Download and run
 
-Click **Code → Download ZIP**, extract the archive, and open a terminal in the extracted folder. Requires Python 3.10 or newer; no extra packages.
+Click **Code → Download ZIP**, extract the archive, and open a terminal in the extracted folder.
 
 ```bash
 python site_checker.py your_urls.csv
 ```
 
-On macOS/Linux, use `python3` if necessary. Run without a filename to open a file picker:
+On macOS/Linux use `python3` if necessary. Run without a filename to choose a CSV with a file picker (requires Tkinter):
 
 ```bash
 python site_checker.py
 ```
 
-CSV SITE CHECKER — Python 3.10 or newer, no extra packages
+## Three-column Excel report
 
-1. Install Python from https://www.python.org/downloads/
-   On Windows, enable "Add Python to PATH" during installation.
-2. Open a terminal in the folder containing site_checker.py.
-3. Run:
-   python site_checker.py your_urls.csv
-   (On macOS/Linux, use python3 instead of python if needed.)
+Results are saved beside the input as `your_urls_checked.csv`.
 
-Or run without a filename to choose a CSV using a file picker:
-   python site_checker.py
-The file picker requires Tkinter, included with most desktop Python installations.
+| URL | Detailed response | Short result |
+| --- | --- | --- |
+| example.com | 200 OK: Request fulfilled, document follows; requested/final URL, elapsed time, UTC timestamp | 200 |
+| https://example.com/private | 403 Forbidden: Request forbidden; requested/final URL, elapsed time, UTC timestamp | 403 |
+| https://example.com/old | Final HTTP response, requested/final URL, full redirect chain, elapsed time, UTC timestamp | transfer to https://example.com/new (200) |
+| unreachable.example | DNS_ERROR and error details, requested URL, elapsed time, UTC timestamp | no response |
 
-Advanced example:
-   python site_checker.py urls.csv --column website --workers 5 --timeout 20 -o results.csv
+These are illustrative examples, not live measurements. Any HTTP response produces its numeric status (including 404 and 503). Redirects include their destination and final status in the short result. If the destination fails to respond, the short result includes the destination and `no response`. Malformed URLs say `invalid URL`.
 
-INPUT
-UTF-8 CSV, optionally with a header named url, urls, website, site, or domain.
-Without a recognized header, the first column is used, including its first row.
-Use --column for a different header. Comma, semicolon and tab separators are detected.
-Blank URL cells are skipped. Input order and duplicate URLs are preserved.
+Open the report in Excel, select its three columns, and press **Ctrl+T** (or **Insert → Table**). Enable **My table has headers**. Use **Wrap Text** on the detailed response column. Save as `.xlsx` to retain table formatting: CSV stores values only.
 
-OUTPUT
-By default, a new INPUT_checked.csv appears beside the input.
-Includes original input, checked URL, final URL, exact final HTTP status,
-category, redirect history, elapsed time, error, and UTC timestamp.
-200–299: OK; 404: NOT_FOUND; 503: SERVICE_UNAVAILABLE.
-401/403: ACCESS_RESTRICTED; 429: RATE_LIMITED.
-Other HTTP codes are reported too. Network failures have a category and no HTTP code.
-Redirects are followed; their codes and destinations appear in the redirects column.
+The report uses UTF-8 with BOM and a first-line `sep=,` hint so desktop Excel can recognize the delimiter across regional settings. For semicolons:
 
-INTERPRETATION
-404 means that particular page was not found, not that the whole site is offline.
-403 may mean bot blocking. A site returning any HTTP status has responded.
-Bare domains use HTTPS. To check HTTP explicitly, use http:// in the CSV.
-TLS certificates are verified; certificate failures are reported separately.
-No automatic fallback to HTTP or retries: failures and transient 503s remain visible.
-Checks use GET and close after response headers, without downloading full pages.
-Timeout is per socket operation, not a strict total deadline (redirects/DNS can add time).
-Results reflect the machine/network running the checker. No browser JavaScript is run,
-so soft 404s and error messages embedded in a 200 page cannot be detected.
-For rate limits, reduce --workers and run later.
+```bash
+python site_checker.py your_urls.csv --delimiter semicolon
+```
+
+When importing through Excel's **Data → From Text/CSV**, choose the separator and skip the first `sep=` row before promoting headers if necessary. Other CSV readers should also skip that metadata row. Formula-like cell values are prefixed with an apostrophe for Excel.
+
+## Input and options
+
+Input is UTF-8 CSV, optionally with a header named `url`, `urls`, `website`, `site`, or `domain`. Otherwise the first column is used, including its first row. Comma, semicolon, and tab separators are detected. Blank URL cells are skipped; order and duplicates are preserved.
+
+```bash
+python site_checker.py urls.csv --column website --workers 5 --timeout 20 -o results.csv
+```
+
+Bare domains use HTTPS. To check HTTP explicitly, include `http://`. Certificates are verified. Checks use GET, follow redirects, and close after headers without downloading full pages. No automatic retries or fallback to HTTP. The timeout is per socket operation, not a strict overall deadline; DNS and redirects may add time.
+
+404 means that page was not found; 403 may indicate access restrictions or bot blocking. A site returning an HTTP error is still responding. Results reflect the checking machine's network. JavaScript redirects and error pages served with status 200 are not detected. Reduce `--workers` if sites return rate limits.
