@@ -10,9 +10,12 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
+from http import HTTPStatus
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, urlunsplit, quote
 from urllib.request import Request, build_opener, HTTPRedirectHandler
+
+REPORT_FIELDS = ['URL', 'Detailed response', 'Short result']
 
 FIELDS = ['input', 'checked_url', 'final_url', 'status_code', 'result',
           'redirects', 'response_ms', 'error', 'checked_at_utc']
@@ -90,10 +93,48 @@ def check(value, timeout=15):
     row['response_ms'] = round((time.monotonic() - start) * 1000)
     return row
 
+def excel_cell(value):
+    """Keep untrusted CSV text from being interpreted as an Excel formula."""
+    text = str(value)
+    if text.lstrip().startswith(('=', '+', '-', '@')) or text.startswith(('\t', '\r', '\n')):
+        return "'" + text
+    return text
+
+def report_row(row):
+    code = row['status_code']
+    if code:
+        try:
+            status = HTTPStatus(int(code))
+            explanation = f'{code} {status.phrase}: {status.description}'
+        except ValueError:
+            explanation = f'HTTP {code}'
+        short = str(code)
+    else:
+        explanation = f"{row['result']}: {row['error']}"
+        short = 'invalid URL' if row['result'] == 'INVALID_URL' else 'no response'
+    details = [explanation, f"Requested: {row['checked_url'] or row['input']}"]
+    if row['final_url']:
+        details.append(f"Final URL: {row['final_url']}")
+    if row['redirects']:
+        details.append(f"Redirects: {row['redirects']}")
+        destination = row['final_url'] or row['redirects'].rsplit(' -> ', 1)[-1]
+        short = f'transfer to {destination} ({short})'
+    if code and row['error']:
+        details.append(f"Server message: {row['error']}")
+    details.extend([f"Elapsed: {row['response_ms']} ms", f"Checked UTC: {row['checked_at_utc']}"])
+    return dict(zip(REPORT_FIELDS, map(excel_cell, (row['input'], ' | '.join(details), short))))
+
+
 def read_urls(path, column=None):
     with open(path, encoding='utf-8-sig', newline='') as handle:
+        # Excel's separator hint is metadata, not a URL row.
+        start = handle.tell()
+        first_line = handle.readline()
+        if not (first_line.strip().lower() in ('sep=,', 'sep=;', 'sep=\t')):
+            handle.seek(start)
+        start = handle.tell()
         sample = handle.read(8192)
-        handle.seek(0)
+        handle.seek(start)
         try: dialect = csv.Sniffer().sniff(sample, delimiters=',;\t')
         except csv.Error: dialect = csv.excel
         rows = csv.reader(handle, dialect)
@@ -121,6 +162,8 @@ def main():
     parser.add_argument('--column', help='Name of URL column; otherwise auto-detect or use first column')
     parser.add_argument('--workers', type=int, default=10, help='Parallel checks (default: 10)')
     parser.add_argument('--timeout', type=float, default=15, help='Socket timeout in seconds (default: 15)')
+    parser.add_argument('--delimiter', choices=['comma', 'semicolon'], default='comma',
+                        help='CSV separator (default: comma); Excel detects it using a sep= line')
     args = parser.parse_args()
     if not 1 <= args.workers <= 100 or not 0 < args.timeout <= 300:
         parser.error('workers must be 1–100; timeout must be greater than 0 and at most 300')
@@ -143,11 +186,13 @@ def main():
         counts = Counter()
         print(f'Checking {len(urls)} URLs...', flush=True)
         with target.open('w', encoding='utf-8-sig', newline='') as handle:
-            writer = csv.DictWriter(handle, fieldnames=FIELDS)
+            delimiter = ',' if args.delimiter == 'comma' else ';'
+            handle.write(f'sep={delimiter}\r\n')
+            writer = csv.DictWriter(handle, fieldnames=REPORT_FIELDS, delimiter=delimiter)
             writer.writeheader()
             with ThreadPoolExecutor(max_workers=args.workers) as pool:
                 for i, row in enumerate(pool.map(lambda u: check(u, args.timeout), urls), 1):
-                    writer.writerow(row)
+                    writer.writerow(report_row(row))
                     handle.flush()
                     counts[row['result']] += 1
                     print(f"[{i}/{len(urls)}] {row['input']}: {row['status_code'] or row['result']}", flush=True)
