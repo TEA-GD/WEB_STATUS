@@ -15,15 +15,17 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, urlunsplit, quote
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
-REPORT_FIELDS = ['URL', 'Detailed response', 'Short result']
+REPORT_FIELDS = ['URL', 'Detailed response', 'Short result', 'IP address']
 
 FIELDS = ['input', 'checked_url', 'final_url', 'status_code', 'result',
-          'redirects', 'response_ms', 'error', 'checked_at_utc']
+          'redirects', 'response_ms', 'error', 'checked_at_utc', 'ip_address']
 
 class Redirects(HTTPRedirectHandler):
     def __init__(self):
         self.history = []
+        self.last_url = ''
     def redirect_request(self, req, fp, code, msg, headers, newurl):
+        self.last_url = newurl
         self.history.append(f'{code} {req.full_url} -> {newurl}')
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
@@ -60,6 +62,20 @@ def classify(code):
     if 500 <= code < 600: return 'SERVER_ERROR'
     return 'HTTP_RESPONSE'
 
+def resolve_ips(url):
+    """Return unique DNS addresses, independently of HTTP success or failure."""
+    try:
+        parts = urlsplit(url)
+        if not parts.hostname:
+            return 'unavailable'
+        addresses = socket.getaddrinfo(parts.hostname, parts.port or
+                                       (443 if parts.scheme == 'https' else 80),
+                                       type=socket.SOCK_STREAM)
+        return '; '.join(dict.fromkeys(item[4][0] for item in addresses)) or 'unavailable'
+    except (OSError, ValueError, UnicodeError):
+        return 'unavailable'
+
+
 def check(value, timeout=15):
     start = time.monotonic()
     row = dict.fromkeys(FIELDS, '')
@@ -89,6 +105,10 @@ def check(value, timeout=15):
         elif isinstance(reason, (TimeoutError, socket.timeout)): category = 'TIMEOUT'
         else: category = 'CONNECTION_ERROR'
         row.update(result=category, error=str(reason))
+    if row['result'] != 'INVALID_URL':
+        row['ip_address'] = resolve_ips(row['final_url'] or redirects.last_url or row['checked_url'])
+    else:
+        row['ip_address'] = 'unavailable'
     row['redirects'] = ' | '.join(redirects.history)
     row['response_ms'] = round((time.monotonic() - start) * 1000)
     return row
@@ -122,7 +142,7 @@ def report_row(row):
     if code and row['error']:
         details.append(f"Server message: {row['error']}")
     details.extend([f"Elapsed: {row['response_ms']} ms", f"Checked UTC: {row['checked_at_utc']}"])
-    return dict(zip(REPORT_FIELDS, map(excel_cell, (row['input'], ' | '.join(details), short))))
+    return dict(zip(REPORT_FIELDS, map(excel_cell, (row['input'], ' | '.join(details), short, row['ip_address']))))
 
 
 def read_urls(path, column=None):
