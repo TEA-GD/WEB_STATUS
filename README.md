@@ -16,20 +16,22 @@ On macOS/Linux use `python3` if necessary. Run without a filename to choose a CS
 python site_checker.py
 ```
 
-## Three-column Excel report
+## Four-column Excel report
 
 Results are saved beside the input as `your_urls_checked.csv`.
 
-| URL | Detailed response | Short result |
-| --- | --- | --- |
-| example.com | 200 OK: Request fulfilled, document follows; requested/final URL, elapsed time, UTC timestamp | 200 |
-| https://example.com/private | 403 Forbidden: Request forbidden; requested/final URL, elapsed time, UTC timestamp | 403 |
-| https://example.com/old | Final HTTP response, requested/final URL, full redirect chain, elapsed time, UTC timestamp | transfer to https://example.com/new (200) |
-| unreachable.example | DNS_ERROR and error details, requested URL, elapsed time, UTC timestamp | no response |
+| URL | Detailed response | Short result | IP address |
+| --- | --- | --- | --- |
+| example.com | 200 OK: Request fulfilled, document follows; requested/final URL, elapsed time, UTC timestamp | 200 | 192.0.2.10 |
+| https://example.com/private | 403 Forbidden: Request forbidden; requested/final URL, elapsed time, UTC timestamp | 403 | 192.0.2.10 |
+| https://example.com/old | Final HTTP response, requested/final URL, full redirect chain, elapsed time, UTC timestamp | transfer to https://example.com/new (200) | 192.0.2.20 |
+| unreachable.example | DNS_ERROR and error details, requested URL, elapsed time, UTC timestamp | no response | unavailable |
 
 These are illustrative examples, not live measurements. Any HTTP response produces its numeric status (including 404 and 503). Redirects include their destination and final status in the short result. If the destination fails to respond, the short result includes the destination and `no response`. Malformed URLs say `invalid URL`.
 
-Open the report in Excel, select its three columns, and press **Ctrl+T** (or **Insert → Table**). Enable **My table has headers**. Use **Wrap Text** on the detailed response column. Save as `.xlsx` to retain table formatting: CSV stores values only.
+The **IP address** column lists unique IPv4 and IPv6 addresses resolved for the final destination hostname (or the original hostname when there is no redirect). Multiple addresses are separated by semicolons inside the cell. Failed lookups and invalid URLs show `unavailable`; an HTTP connection failure may still have resolved addresses. These are DNS lookup results, which can differ from the actual server used because of load balancing or proxies. DNS lookup time is included in the elapsed time.
+
+Open the report in Excel, select its four columns, and press **Ctrl+T** (or **Insert → Table**). Enable **My table has headers**. Use **Wrap Text** on the detailed response column. Save as `.xlsx` to retain table formatting: CSV stores values only.
 
 The report uses UTF-8 with BOM and a first-line `sep=,` hint so desktop Excel can recognize the delimiter across regional settings. For semicolons:
 
